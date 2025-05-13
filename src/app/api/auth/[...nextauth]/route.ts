@@ -1,8 +1,25 @@
-import NextAuth from "next-auth";
+// app/api/auth/[...nextauth]/route.ts
+
+import NextAuth, { DefaultSession, NextAuthOptions } from "next-auth";
 import Google from "next-auth/providers/google";
 import prisma from "@/lib/prisma";
 
-export const authOptions = {
+// Разширете Session интерфейса, за да включите googleId
+declare module "next-auth" {
+  interface Session {
+    user: {
+      googleId?: string;
+    } & DefaultSession["user"];
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    sub?: string;
+  }
+}
+
+const authOptions: NextAuthOptions = {
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -17,30 +34,30 @@ export const authOptions = {
     }),
   ],
   secret: process.env.NEXTAUTH_SECRET,
-
   callbacks: {
-    async session({ session, token }: any) {
-
+    async session({ session, token }) {
       if (token.sub) {
         const now = new Date();
+
         try {
           await prisma.user.upsert({
-            where: {
-              googleId: token.sub,
-            },
+            where: { googleId: token.sub },
             update: {
               name: session.user.name || undefined,
               email: session.user.email || undefined,
-              updatedAt: now
+              updatedAt: now,
             },
             create: {
               name: session.user.name || "",
               email: session.user.email || "",
               googleId: token.sub,
               createdAt: now,
-              updatedAt: now
+              updatedAt: now,
             },
           });
+
+          // Добавяме googleId към session
+          session.user.googleId = token.sub;
         } catch (error) {
           console.error("Error creating/updating user", error);
         }
@@ -49,17 +66,10 @@ export const authOptions = {
       return session;
     },
   },
-
 };
 
-const NextAuthHandler = NextAuth(authOptions);
+const handler = NextAuth(authOptions);
 
-// Обграждаме handler-а, за да достъпим req и res
-const handler = (req: any, res: any) => {
-  const currentPath = req.url;
-  console.log("Current path:", currentPath);
-  return NextAuthHandler(req, res);
-};
 
 
 export { handler as GET, handler as POST };
